@@ -44,7 +44,6 @@ extern unsigned char ntsc;
 extern unsigned char CPU_is_running;
 extern unsigned char pause_emulation;
 
-extern unsigned char scale;
 extern unsigned char skipframe;
 
 extern unsigned short height;
