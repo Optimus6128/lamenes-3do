@@ -1,5 +1,6 @@
 // GestionAffichage
 #include "GestionAffichage.h"
+#include "../palette.h"
 
 // Format de l'ecran par defaut (NTSC)
 int32 ecranFormat=0;
@@ -478,6 +479,16 @@ void fill_rectangle(int x, int y, int size_rect, int RED, int GREEN, int BLUE)
 	rectangle.rect_YBottom=y+size_rect-1;
 	
 	FillRect(pointeurEcranContexte->sc_BitmapItems[ecranCourant], &contexteGraphique, &rectangle);
+}
+
+void draw_pixel(int x, int y, int nescolor)
+{
+	/* pixel tranparency */
+	if (nescolor != 0)
+	{
+		uint16 *dst = (uint16*)(pointeurEcranContexte->sc_Bitmaps[ecranCourant]->bm_Buffer) + (y >> 1) * 320 * 2 + (y & 1) + ((x + 32) << 1);
+		*dst = MakeRGB15(palette[nescolor].r, palette[nescolor].g, palette[nescolor].b);
+	}
 }
 
 bool Screen_format()

@@ -1,5 +1,5 @@
 3DODEV	= C:/3DODev/
-ARMDEV	= C:/arm250/
+ARMDEV	= C:/arm251/
 
 # Project specific settings
 NAME	= LaunchMe
@@ -14,9 +14,10 @@ RM		= $(3DODEV)bin/rm
 MODBIN	= $(3DODEV)bin/modbin
 MAKEBANNER	= $(3DODEV)bin/MakeBanner
 
-CCFLAGS = -Wd -bi -apcs /swst/fp -cpu ARM60 $(INCPATH)
+CCFLAGS = -O2 -Otime -Wd -bi -za1 -d DEBUG=0 -cpu ARM60 $(INCPATH)
 ASFLAGS =
-INCPATH	= -I$(3DODEV)includes -I./3DO -I./lame6502 -I. -I./lib
+INCPATH	= -J$(3DODEV)includes -J$(ARMDEV)Include -I./3DO -I./lame6502 -I. -I./lib
+
 LDFLAGS = -reloc -nodebug -remove -ro-base 0x80 
 LIBPATH	= $(3DODEV)libs/
 STARTUP = $(LIBPATH)cstartup.o

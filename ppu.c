@@ -314,28 +314,19 @@ void write_ppu_memory(unsigned int address,unsigned char data)
 	return;
 }
 
+#ifdef PC
 void draw_pixel(int x, int y, int nescolor)
 {
-	x = x + 32;
-#ifdef PC
-	
 	if (nescolor != 0)
 	{
 		Uint32 color = SDL_MapRGB(screen->format, palette[nescolor].r, palette[nescolor].g, palette[nescolor].b);
 
 		Uint16 *bufp;
-		bufp = (Uint16 *)screen->pixels + y*screen->pitch/2 + x;
+		bufp = (Uint16 *)screen->pixels + y*screen->pitch/2 + x + 32;
 		*bufp = color;
 	}
-
-#else
-	/* pixel tranparency */
-	if (nescolor != 0)
-	{
-		fill_rectangle(x, y, 1, palette[nescolor].r, palette[nescolor].g, palette[nescolor].b);
-	}
-#endif
 }
+#endif
 
 void render_background(int scanline)
 {
