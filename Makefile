@@ -12,7 +12,7 @@ AS 		= $(ARMDEV)bin/armas
 LD		= $(ARMDEV)bin/armlink
 RM		= $(3DODEV)bin/rm
 MODBIN	= $(3DODEV)bin/modbin
-MAKEBANNER	= $(3DODEV)bin/MakeBanner
+MAKEBANNER	= tools/banner/MakeBanner
 
 CCFLAGS = -O2 -Otime -Wd -bi -za1 -d DEBUG=0 -cpu ARM60 $(INCPATH)
 ASFLAGS =
