@@ -34,8 +34,10 @@
 #include <string.h>
 #include "lame6502.h"
 
-unsigned short GET_SR();
-unsigned short SET_SR(unsigned short b);
+unsigned char GET_SR();
+void SET_SR(unsigned char b);
+
+#define MAKE_FLAGS (carry_flag | (zero_flag << 1) | (interrupt_flag << 2) | (decimal_flag << 3) | (break_flag << 4) | (1<<5) | (overflow_flag << 6) | (sign_flag << 7))
 
 /*
  * instructions.h - 6502 cpu instruction macros
@@ -1111,7 +1113,7 @@ unsigned short SET_SR(unsigned short b);
 					addr=memory_read(stack_pointer+0x100); }				
 					
 
-unsigned short GET_SR()
+unsigned char GET_SR()
 {
 	extern int zero_flag;	
 	extern int sign_flag;
@@ -1121,16 +1123,17 @@ unsigned short GET_SR()
 	extern int interrupt_flag;
 	extern int carry_flag;
 
-	return	((sign_flag ? 0x80 : 0) |
+	return MAKE_FLAGS;
+	/*return	((sign_flag ? 0x80 : 0) |
 			(zero_flag ? 0x02 : 0) |
 			(carry_flag ? 0x01 : 0) |
 			(interrupt_flag ? 0x04 : 0) |
 			(decimal_flag ? 0x08 : 0) |
 			(overflow_flag ? 0x40 : 0) |
-			(break_flag ? 0x10 : 0) | 0x20);
+			(break_flag ? 0x10 : 0) | 0x20);*/
 }
 	
-unsigned short SET_SR(unsigned short b)
+void SET_SR(unsigned char b)
 {
 	extern int zero_flag;	
 	extern int sign_flag;
@@ -1140,11 +1143,19 @@ unsigned short SET_SR(unsigned short b)
 	extern int interrupt_flag;
 	extern int carry_flag;
 
-	return	((sign_flag = b & 0x80) |\
+	/*return	((sign_flag = b & 0x80) |\
 			(zero_flag = b & 0x02) |\
 			(carry_flag = b & 0x01) |\
 			(interrupt_flag = b & 0x04) |\
 			(decimal_flag = b & 0x08) |\
 			(overflow_flag = b & 0x40) |\
-			(break_flag = (b & 0x10) | 0x20));
+			(break_flag = (b & 0x10) | 0x20));*/
+
+	sign_flag = b & 0x80;
+	zero_flag = b & 0x02;
+	carry_flag = b & 0x01;
+	interrupt_flag = b & 0x04;
+	decimal_flag = b & 0x08;
+	overflow_flag = b & 0x40;
+	break_flag = b & 0x10;
 }

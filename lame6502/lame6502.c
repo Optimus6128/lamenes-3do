@@ -169,7 +169,9 @@ int CPU_execute(int cycles)
 	cycle_count = cycles;
 	do 
 	{
-		update_status_register();
+		//update_status_register();
+		status_register = carry_flag | (zero_flag << 1) | (interrupt_flag << 2) | (decimal_flag << 3) | (break_flag << 4) | (1<<5) | (overflow_flag << 6) | (sign_flag << 7);
+		
 		opcode=memory[program_counter++];
 
 		switch(opcode) 

@@ -402,6 +402,7 @@ unsigned char memory_read(unsigned int address) {
 void
 write_memory(unsigned int address,unsigned char data)
 {
+
 	/* PPU Status */
 	if(address == 0x2002) {
 		memory[address] = data;
@@ -428,10 +429,10 @@ write_memory(unsigned int address,unsigned char data)
 	}
 
 	/* Joypad 2 */
-	if(address == 0x4017) {
+	/*if(address == 0x4017) {
 		memory[address] = 0x48;
 		return;
-	}
+	}*/
 
 	/* pAPU Sound Registers */
 	/*
@@ -459,7 +460,7 @@ write_memory(unsigned int address,unsigned char data)
 		memory[address+6144] = data; /* mirror of 0-800 */
 		return;
 	}
-
+/*
 	if(MAPPER == 1) {
 		mmc1_access(address,data);
 		return;
@@ -479,7 +480,7 @@ write_memory(unsigned int address,unsigned char data)
 		mmc3_access(address,data);
 		return;
 	}
-	
+	*/
 	memory[address] = data;
 }
 
