@@ -42,6 +42,7 @@
 #include "lamenes.h"
 #include "romloader.h"
 #include "ppu.h"
+#include "palette.h"
 #include "input.h"
 #include "sdl_functions.h"
 
@@ -60,7 +61,9 @@
 	#include "3DO/GestionAffichage.h"
 	#include "3DO/GestionSprites.h"
 	#include "3DO/GestionTextes.h"
+	#include <graphics.h>
 #endif
+
 
 char romfn[256];
 
@@ -78,8 +81,7 @@ unsigned int vblank_int;
 unsigned int vblank_cycle_timeout;
 unsigned int scanline_refresh;
 
-unsigned char ntsc = 0;
-unsigned char pal = 1;
+int systemType;
 
 unsigned char CPU_is_running = 1;
 unsigned char pause_emulation = 0;
@@ -98,6 +100,8 @@ unsigned char scale = 1;
 
 unsigned char frameskip = 0;
 unsigned char skipframe = 0;
+
+CCB *screenCel;
 
 /*int sdl_delay = 0;*/
 
@@ -523,7 +527,7 @@ void start_emulation()
 			skipframe = 0;
 
 		screen_lock();
-		for(scanline = 0; scanline < 240; scanline++) {
+		for(scanline = 0; scanline < height; scanline++) {
 			if(!sprite_zero) {
 				check_sprite_hit(scanline);
 			}
@@ -545,8 +549,14 @@ void start_emulation()
 		render_sprites();
 		screen_unlock();
 
-		if(skipframe == 0)
-			update_screen();
+		if(skipframe == 0) {
+			#ifdef PC
+				SDL_Flip(screen);
+			#else
+				drawNESscreenCEL();
+				affichageMiseAJour();
+			#endif
+		}
 
 		skipframe++;
 
@@ -583,8 +593,7 @@ void reset_emulation()
 	start_emulation();
 }
 
-void
-quit_emulation()
+void quit_emulation()
 {
 	/* free all memory */
 	free(sprite_memory);
@@ -597,23 +606,59 @@ quit_emulation()
 	exit(0);
 }
 
+static void initNESscreenCEL()
+{
+	//int x,y;
+	//uint16 *dst;
+
+	screenCel = CreateCel(width + 8, height + 8, 16, CREATECEL_UNCODED, NULL);
+	screenCel->ccb_Flags |= (CCB_LAST | CCB_BGND);
+	screenCel->ccb_XPos = 32 << 16;
+
+	/*dst = (uint16*)screenCel->ccb_SourcePtr;
+	for (y=0; y<screenCel->ccb_Height; ++y) {
+		for (x=0; x<screenCel->ccb_Width; ++x) {
+			*dst++ = x ^ y;
+		}
+	}*/
+}
+
+static void initNESpal3DO()
+{
+	int i;
+	for (i=0; i<64; ++i) {
+		palette3DO[i] = MakeRGB15(palette[i].r, palette[i].g, palette[i].b);
+	}
+}
+
 int main(void)
 {
 	/* cpu speed */
 	unsigned int NTSC_SPEED = 1789725;
 	unsigned int PAL_SPEED = 1773447;
 
+	/* screen width */
+	#define SCREEN_WIDTH 256
+	
+	/* screen height */
+	#define NTSC_HEIGHT 224
+	#define PAL_HEIGHT 240
+
+	/* screen total height */
+	#define NTSC_TOTAL_HEIGHT 261
+	#define PAL_TOTAL_HEIGHT 313
+
 	/* vblank int */
 	unsigned short NTSC_VBLANK_INT = NTSC_SPEED / 60;
 	unsigned short PAL_VBLANK_INT = PAL_SPEED / 50;
 
 	/* scanline refresh (hblank)*/
-	unsigned short NTSC_SCANLINE_REFRESH = NTSC_VBLANK_INT / 261;
-	unsigned short PAL_SCANLINE_REFRESH = PAL_VBLANK_INT / 313;
+	unsigned short NTSC_SCANLINE_REFRESH = NTSC_VBLANK_INT / NTSC_TOTAL_HEIGHT;
+	unsigned short PAL_SCANLINE_REFRESH = PAL_VBLANK_INT / PAL_TOTAL_HEIGHT;
 
 	/* vblank int cycle timeout */
-	unsigned int NTSC_VBLANK_CYCLE_TIMEOUT = (261-224) * NTSC_VBLANK_INT / 261;
-	unsigned int PAL_VBLANK_CYCLE_TIMEOUT = (313-240) * PAL_VBLANK_INT / 313;
+	unsigned int NTSC_VBLANK_CYCLE_TIMEOUT = (NTSC_TOTAL_HEIGHT-NTSC_HEIGHT) * NTSC_VBLANK_INT / NTSC_TOTAL_HEIGHT;
+	unsigned int PAL_VBLANK_CYCLE_TIMEOUT = (PAL_TOTAL_HEIGHT-PAL_HEIGHT) * PAL_VBLANK_INT / PAL_TOTAL_HEIGHT;
 
 	show_header();
 
@@ -656,6 +701,10 @@ int main(void)
 	{
 		mmc3_reset();
 	}
+	
+
+	// Forcing it to PAL for now, probably I have to detect the type from the ROM loaded in the future
+	systemType = SYSTEM_PAL;
 
 /*
 	statefile = str_replace(romfn,".nes",".sst");
@@ -666,50 +715,27 @@ int main(void)
 	}
 */
 
-	if(pal == 1) 
-	{
-		height = 240;
+	if(systemType == SYSTEM_PAL) {
+		height = PAL_HEIGHT;
 		width = 256;
-	}
+	} else if(systemType == SYSTEM_NTSC) {
+		height = NTSC_HEIGHT;
+		width = 256;
+	} else return -1;
 
-	if(ntsc == 1) 
-	{
-		height = 224;
-		width = 256;
-	}
+
+	initNESscreenCEL();
+	initNESpal3DO();
+
 
 	sdl_screen_height = height * scale;
 	sdl_screen_width = width * scale;
 
-	/*if(pal == 1) {
-		printf("[*] PAL_SPEED: %d\n",PAL_SPEED);
-		printf("[*] PAL_VBLANK_INT: %d\n",PAL_VBLANK_INT);
-		printf("[*] PAL_SCANLINE_REFRESH: %d\n",PAL_SCANLINE_REFRESH);
-		printf("[*] PAL_VBLANK_CYCLE_TIMEOUT: %d\n",PAL_VBLANK_CYCLE_TIMEOUT);
-		printf("[*] height * PAL_SCANLINE_REFRESH: %d\n",(height * PAL_SCANLINE_REFRESH) + PAL_VBLANK_CYCLE_TIMEOUT + 341);
-	}
-
-	if(ntsc == 1) {
-		printf("[*] NTSC_SPEED: %d\n",NTSC_SPEED);
-		printf("[*] NTSC_VBLANK_INT: %d\n",NTSC_VBLANK_INT);
-		printf("[*] NTSC_SCANLINE_REFRESH: %d\n",NTSC_SCANLINE_REFRESH);
-		printf("[*] NTSC_VBLANK_CYCLE_TIMEOUT: %d\n",NTSC_VBLANK_CYCLE_TIMEOUT);
-		printf("[*] height * NTSC_SCANLINE_REFRESH: %d\n",(height * NTSC_SCANLINE_REFRESH) + NTSC_VBLANK_CYCLE_TIMEOUT + 341);
-	}
-
-	printf("[*] setting screen resolution to: %dx%d\n",sdl_screen_width,sdl_screen_height);
-*/
-	if (pal == 1)
-	{
+	if(systemType == SYSTEM_PAL) {
 		init_SDL(0,fullscreen);
-	}
-
-	if(ntsc == 1)
-	{
+	} else if(systemType == SYSTEM_NTSC) {
 		init_SDL(1,fullscreen);
 	}
-
-	/*printf("[*] resetting cpu...\n");*/
 
 	/*
 	 * first reset the cpu at poweron
@@ -721,18 +747,13 @@ int main(void)
 	 */
 	reset_input();
 
-	/*printf("[*] LameNES starting emulation!\n");*/
 
-	if(pal == 1) 
-	{
+	if(systemType == SYSTEM_PAL) {
 		start_int = 341;
 		vblank_int = PAL_VBLANK_INT;
 		vblank_cycle_timeout = PAL_VBLANK_CYCLE_TIMEOUT;
 		scanline_refresh = PAL_SCANLINE_REFRESH;
-	}
-
-	if(ntsc == 1) 
-	{
+	} else if(systemType == SYSTEM_NTSC) {
 		start_int = 325;
 		vblank_int = NTSC_VBLANK_INT;
 		vblank_cycle_timeout = NTSC_VBLANK_CYCLE_TIMEOUT;

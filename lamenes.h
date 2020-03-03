@@ -28,6 +28,12 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+ 
+#ifndef PC
+	#include <graphics.h>
+#endif
+
+enum {SYSTEM_NTSC, SYSTEM_PAL};
 
 extern char romfn[256];
 
@@ -38,8 +44,8 @@ extern unsigned char *sprite_memory;
 
 extern unsigned int pad1_data;
 
-extern unsigned char pal;
-extern unsigned char ntsc;
+extern int systemType;
+extern CCB *screenCel;
 
 extern unsigned char CPU_is_running;
 extern unsigned char pause_emulation;

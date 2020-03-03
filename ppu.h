@@ -51,4 +51,3 @@ extern void write_ppu_memory(unsigned int address,unsigned char data);
 extern void render_background(int scanline);
 extern void render_sprites();
 extern void check_sprite_hit(int scanline);
-extern void update_screen();

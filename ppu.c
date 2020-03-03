@@ -57,6 +57,7 @@
 /* gfx cache -> [hor] [ver] */
 unsigned char bgcache[256+8] [256+8];
 unsigned char sprcache[256+8] [256+8];
+unsigned char shouldCheckSprCache[256+8];
 
 /* ppu control registers */
 unsigned int ppu_control1 = 0x00;
@@ -326,6 +327,14 @@ void draw_pixel(int x, int y, int nescolor)
 		*bufp = color;
 	}
 }
+#else
+void draw_pixel(int x, int y, int nescolor)
+{
+	if (nescolor != 0) {
+		uint16 *dst = (uint16*)screenCel->ccb_SourcePtr + y * screenCel->ccb_Width + x;
+		*dst = palette3DO[nescolor];
+	}
+}
 #endif
 
 void render_background(int scanline)
@@ -344,9 +353,12 @@ void render_background(int scanline)
 
 	int attribs;
 
-	unsigned char bit1[8];
-	unsigned char bit2[8];
-	unsigned char tile[8];
+	
+	uint16* dst;
+
+	if (!background_on || (systemType == SYSTEM_NTSC && scanline < 8)) return;
+	
+	dst = (uint16*)screenCel->ccb_SourcePtr + scanline * screenCel->ccb_Width;
 
 	current_scanline = scanline;
 
@@ -388,6 +400,8 @@ void render_background(int scanline)
 
 	/* draw 33 tiles in a scanline (32 + 1 for scrolling) */
 	for(tile_count = 0; tile_count < 33; tile_count++) {
+		const int tile_count_offset = tile_count << 3;
+
 		/* nt_data (ppu_memory[nt_addr]) * 16 = pattern table address */
 		pt_addr = (ppu_memory[nt_addr] << 4) + ((loopyV & 0x7000) >> 12);
 
@@ -395,83 +409,19 @@ void render_background(int scanline)
 		if(background_addr_hi)
 			pt_addr+=0x1000;
 
-		/* fetch bits from pattern table */
-		for(i = 7; i >= 0; i--) {
-			bit1[7 - i] = ((ppu_memory[pt_addr] >> i) & 0x01) ? 1 : 0;
-			bit2[7 - i] = ((ppu_memory[pt_addr + 8] >> i) & 0x01) ? 1 : 0;
-		}
-
-		/* merge bits */
 		for(i = 0; i < 8; i++) {
-			if((bit1[i] == 0) &&  (bit2[i] == 0)) {
-				tile[i] = 0;
-			} else if((bit1[i] == 1) &&  (bit2[i] == 0)) {
-				tile[i] = 1;
-			} else if((bit1[i] == 0) &&  (bit2[i] == 1)) {
-				tile[i] = 2;
-			} else if((bit1[i] == 1) &&  (bit2[i] == 1)) {
-				tile[i] = 3;
+			const int bit1 = (ppu_memory[pt_addr] >> (7 - i)) & 1;
+			const int bit2 = (ppu_memory[pt_addr + 8] >> (7 - i)) & 1;
+			int tile = (bit2 << 1) | bit1;
+
+			if(tile != 0) {
+				tile += attribs;
 			}
+
+			*dst++ = palette3DO[ppu_memory[0x3f00 + tile]];
+			bgcache[tile_count_offset + i][scanline] = tile;
 		}
 
-		/* merge colour */
-		for(i = 7; i >= 0; i--) {
-			/* pixel transparency check */
-			if(tile[7 - i] != 0) {
-				tile[7 - i] += attribs;
-			}
-		}
-
-		if((tile_count == 0) && (loopyX != 0)) {
-			for(i = 0; i < 8 - loopyX; i++) {
-				/* cache pixel */
-				bgcache[i] [scanline] = tile[loopyX + i];
-
-				/* draw pixel */
-				if((enable_background == 1) && (background_on) && (skipframe == 0)) {
-					if(ntsc == 1) {
-						if(scanline > 7) {
-							draw_pixel(i, scanline - 8, ppu_memory[0x3f00 + (tile[loopyX + i])]);
-						}
-					} else {
-						draw_pixel(i, scanline, ppu_memory[0x3f00 + (tile[loopyX + i])]);
-					}
-				}
-			}
-		} else if((tile_count == 32) && (loopyX != 0)) {
-			for(i = 0; i < loopyX; i++) {
-				/* cache pixel */
-				bgcache[256 + i - loopyX] [scanline] = tile[i];
-
-				/* draw pixel */
-				if((enable_background == 1) && (background_on) && (skipframe == 0)) {
-					if(ntsc == 1) {
-						if(scanline > 7) {
-							draw_pixel(256 + i - loopyX, scanline - 8, ppu_memory[0x3f00 + (tile[i])]);
-						}
-					} else {
-						draw_pixel(256 + i - loopyX, scanline, ppu_memory[0x3f00 + (tile[i])]);
-					}
-				}
-			}
-		} else {
-			const int tile_count_offset = tile_count << 3;
-			for(i = 0; i < 8; i++) {
-				/* cache pixel */
-				bgcache[tile_count_offset + i - loopyX] [scanline] = tile[i];
-
-				/* draw pixel */
-				if((enable_background == 1) && (background_on) && (skipframe == 0)) {
-					if(ntsc == 1) {
-						if(scanline > 7) {
-							draw_pixel(tile_count_offset + i - loopyX, scanline - 8, ppu_memory[0x3f00 + (tile[i])]);
-						}
-					} else {
-						draw_pixel(tile_count_offset + i - loopyX, scanline, ppu_memory[0x3f00 + (tile[i])]);
-					}
-				}
-			}
-		}
 
 		nt_addr++;
 		x_scroll++;
@@ -593,35 +543,44 @@ void render_sprite(int y, int x, int pattern_number, int attribs, int spr_nr)
 	}
 	#endif
 
+	if (spr_nr==0) {
+		int i;
+		int sprHeight = 8;
+		if (sprite_16) sprHeight = 16;
+		for (i=0; i<sprHeight; ++i) {
+			shouldCheckSprCache[y+i] = 1;
+		}
+	}
+
 	if(!sprite_16) {
 		/* 8 x 8 sprites */
 		/* fetch bits */
 		if((!flip_spr_hor) && (!flip_spr_ver)) {
 			for(i = 7; i >= 0; i--) {
 				for(j = 0; j < 8; j++) {
-					bit1[7 - i] [j] = ((ppu_memory[spr_start + j] >> i) & 0x01) ? 1 : 0;
-					bit2[7 - i] [j] = ((ppu_memory[spr_start + 8 + j] >> i) & 0x01) ? 1 : 0;
+					bit1[7 - i] [j] = (ppu_memory[spr_start + j] >> i) & 1;
+					bit2[7 - i] [j] = (ppu_memory[spr_start + 8 + j] >> i) & 1;
 				}
 			}
 		} else if((flip_spr_hor) && (!flip_spr_ver)) {
 			for(i = 0; i < 8; i++) {
 				for(j = 0; j < 8; j++) {
-					bit1[i] [j] = ((ppu_memory[spr_start + j] >> i) & 0x01) ? 1 : 0;
-					bit2[i] [j] = ((ppu_memory[spr_start + 8 + j] >> i) & 0x01) ? 1 : 0;
+					bit1[i] [j] = (ppu_memory[spr_start + j] >> i) & 1;
+					bit2[i] [j] = (ppu_memory[spr_start + 8 + j] >> i) & 1;
 				}
 			}
 		} else if((!flip_spr_hor) && (flip_spr_ver)) {
 			for(i = 7; i >= 0; i--) {
 				for(j = 7; j >= 0; j--) {
-					bit1[7 - i] [7 - j] = ((ppu_memory[spr_start + j] >> i) & 0x01) ? 1 : 0;
-					bit2[7 - i] [7 - j] = ((ppu_memory[spr_start + 8 + j] >> i) & 0x01) ? 1 : 0;
+					bit1[7 - i] [7 - j] = (ppu_memory[spr_start + j] >> i) & 1;
+					bit2[7 - i] [7 - j] = (ppu_memory[spr_start + 8 + j] >> i) & 1;
 				}
 			}
 		} else if((flip_spr_hor) && (flip_spr_ver)) {
 			for(i = 0; i < 8; i++) {
 				for(j = 7; j >= 0; j--) {
-					bit1[i] [7 - j] = ((ppu_memory[spr_start + j] >> i) & 0x01) ? 1 : 0;
-					bit2[i] [7 - j] = ((ppu_memory[spr_start + 8 + j] >> i) & 0x01) ? 1 : 0;
+					bit1[i] [7 - j] = (ppu_memory[spr_start + j] >> i) & 1;
+					bit2[i] [7 - j] = (ppu_memory[spr_start + 8 + j] >> i) & 1;
 				}
 			}
 		}
@@ -629,15 +588,7 @@ void render_sprite(int y, int x, int pattern_number, int attribs, int spr_nr)
 		/* merge bits */
 		for(i = 0; i < 8; i++) {
 			for(j = 0; j < 8; j++) {
-				if((bit1[i] [j] == 0) &&  (bit2[i] [j] == 0)) {
-					sprite[i] [j] = 0;
-				} else if((bit1[i] [j] == 1) &&  (bit2[i] [j] == 0)) {
-					sprite[i] [j] = 1;
-				} else if((bit1[i] [j] == 0) &&  (bit2[i] [j] == 1)) {
-					sprite[i] [j] = 2;
-				} else if((bit1[i] [j] == 1) &&  (bit2[i] [j] == 1)) {
-					sprite[i] [j] = 3;
-				}
+				sprite[i][j] = (bit2[i][j] << 1) | bit1[i][j];
 			}
 		}	
 
@@ -690,27 +641,13 @@ void render_sprite(int y, int x, int pattern_number, int attribs, int spr_nr)
 					/* sprite priority check */
 					if(!disp_spr_back) {
 						if((enable_sprites == 1) && (sprite_on) && (skipframe == 0)) {
-							/* draw pixel */
-							if(ntsc == 1) {
-								if(y + j > 7) {
-									draw_pixel(x + i, (y - 8) + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
-								}
-							} else {
-								draw_pixel(x + i, y + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
-							}
+							draw_pixel(x + i, y + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
 						}
 					} else {
 						if((enable_sprites == 1) && (sprite_on) && (skipframe == 0)) {
 							/* draw the sprite pixel if the background pixel is transparent (0) */
 							if(bgcache[x+i] [y+j] == 0) {
-								/* draw pixel */
-								if(ntsc == 1) {
-									if(y + j > 7) {
-										draw_pixel(x + i, (y - 8) + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
-									}
-								} else {
-									draw_pixel(x + i, y + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
-								}
+								draw_pixel(x + i, y + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
 							}
 						}
 					}
@@ -730,29 +667,29 @@ void render_sprite(int y, int x, int pattern_number, int attribs, int spr_nr)
 		if((!flip_spr_hor) && (!flip_spr_ver)) {
 			for(i = 7; i >= 0; i--) {
 				for(j = 0; j < 16; j++) {
-					bit1[7 - i] [j] = ((ppu_memory[spr_start + j] >> i) & 0x01) ? 1 : 0;
-					bit2[7 - i] [j] = ((ppu_memory[spr_start + 8 + j] >> i) & 0x01) ? 1 : 0;
+					bit1[7 - i] [j] = (ppu_memory[spr_start + j] >> i) & 1;
+					bit2[7 - i] [j] = (ppu_memory[spr_start + 8 + j] >> i) & 1;
 				}
 			}
 		} else if((flip_spr_hor) && (!flip_spr_ver)) {
 			for(i = 0; i < 8; i++) {
 				for(j = 0; j < 16; j++) {
-					bit1[i] [j] = ((ppu_memory[spr_start + j] >> i) & 0x01) ? 1 : 0;
-					bit2[i] [j] = ((ppu_memory[spr_start + 8 + j] >> i) & 0x01) ? 1 : 0;
+					bit1[i] [j] = (ppu_memory[spr_start + j] >> i) & 1;
+					bit2[i] [j] = (ppu_memory[spr_start + 8 + j] >> i) & 1;
 				}
 			}
 		} else if((!flip_spr_hor) && (flip_spr_ver)) {
 			for(i = 7; i >= 0; i--) {
 				for(j = 15; j >= 0; j--) {
-					bit1[7 - i] [7 - j] = ((ppu_memory[spr_start + j] >> i) & 0x01) ? 1 : 0;
-					bit2[7 - i] [7 - j] = ((ppu_memory[spr_start + 8 + j] >> i) & 0x01) ? 1 : 0;
+					bit1[7 - i] [7 - j] = (ppu_memory[spr_start + j] >> i) & 1;
+					bit2[7 - i] [7 - j] = (ppu_memory[spr_start + 8 + j] >> i) & 1;
 				}
 			}
 		} else if((flip_spr_hor) && (flip_spr_ver)) {
 			for(i = 0; i < 8; i++) {
 				for(j = 15; j >= 0; j--) {
-					bit1[i] [7 - j] = ((ppu_memory[spr_start + j] >> i) & 0x01) ? 1 : 0;
-					bit2[i] [7 - j] = ((ppu_memory[spr_start + 8 + j] >> i) & 0x01) ? 1 : 0;
+					bit1[i] [7 - j] = (ppu_memory[spr_start + j] >> i) & 1;
+					bit2[i] [7 - j] = (ppu_memory[spr_start + 8 + j] >> i) & 1;
 				}
 			}
 		}
@@ -760,15 +697,7 @@ void render_sprite(int y, int x, int pattern_number, int attribs, int spr_nr)
 		/* merge bits */
 		for(i = 0; i < 8; i++) {
 			for(j = 0; j < 16; j++) {
-				if((bit1[i] [j] == 0) &&  (bit2[i] [j] == 0)) {
-					sprite[i] [j] = 0;
-				} else if((bit1[i] [j] == 1) &&  (bit2[i] [j] == 0)) {
-					sprite[i] [j] = 1;
-				} else if((bit1[i] [j] == 0) &&  (bit2[i] [j] == 1)) {
-					sprite[i] [j] = 2;
-				} else if((bit1[i] [j] == 1) &&  (bit2[i] [j] == 1)) {
-					sprite[i] [j] = 3;
-				}
+				sprite[i][j] = (bit2[i][j] << 1) | bit1[i][j];
 			}
 		}	
 
@@ -822,26 +751,14 @@ void render_sprite(int y, int x, int pattern_number, int attribs, int spr_nr)
 					if(!disp_spr_back) {
 						if((enable_sprites == 1) && (sprite_on) && (skipframe == 0)) {
 							/* draw pixel */
-							if(ntsc == 1) {
-								if(y + j > 7) {
-									draw_pixel(x + i, (y - 8) + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
-								}
-							} else {
-								draw_pixel(x + i, y + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
-							}
+							draw_pixel(x + i, y + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
 						}
 					} else {
 						/* draw the sprite pixel if the background pixel is transparent (0) */
 						if(bgcache[x+i] [y+j] == 0) {
 							if((enable_sprites == 1) && (sprite_on) && (skipframe == 0)) {
 								/* draw pixel */
-								if(ntsc == 1) {
-									if(y + j > 7) {
-										draw_pixel(x + i, (y - 8) + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
-									}
-								} else {
-									draw_pixel(x + i, y + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
-								}
+								draw_pixel(x + i, y + j, ppu_memory[0x3f10 + (sprite[i] [j])]);
 							}
 						}
 					}
@@ -862,6 +779,8 @@ void check_sprite_hit(int scanline)
 {
 	/* sprite zero detection */
 	int i;
+	
+	if (!shouldCheckSprCache[scanline]) return;
 
 	for(i = 0; i < width; i++) {
 		if((bgcache[i] [scanline - 1] > 0x00) && (sprcache[i] [scanline - 1] > 0x00)) {
@@ -881,7 +800,8 @@ void render_sprites()
 	int i = 0;
 
 	/* clear sprite cache */
-	memset(sprcache,0x00,sizeof(sprcache));
+	memset(sprcache,0,sizeof(sprcache));
+	memset(shouldCheckSprCache, 0, sizeof(shouldCheckSprCache));
 
 	/* fetch all 64 sprites out of the sprite memory 4 bytes at a time and render the sprite */
 	/* sprites are drawn in priority from sprite 64 to 0 */
@@ -889,13 +809,4 @@ void render_sprites()
 	{
 		render_sprite(sprite_memory[i * 4],sprite_memory[i * 4 + 3],sprite_memory[i * 4 + 1],sprite_memory[i * 4 + 2],i);
 	}
-}
-
-void update_screen()
-{
-	#ifdef PC
-		SDL_Flip(screen);
-	#else
-		affichageRendu();
-	#endif
 }

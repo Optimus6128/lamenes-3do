@@ -45,6 +45,9 @@
 
 void fill_rectangle(int x, int y, int size_rect, int RED, int GREEN, int BLUE);
 
+//void draw_pixel(int x, int y, int nescolor);
+void drawNESscreenCEL(void);
+
 /* Initialise l'affichage */
 bool affichageInitialisation(void);
 /* Cree le rendu de l'affichage en fonction des multiples elements */
